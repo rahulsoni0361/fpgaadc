@@ -1,11 +1,16 @@
 """
-generate_documentation_diagrams.py - Generate High-Resolution Architecture PNGs
-Renders Mermaid charts to standalone PNGs in the documentation/ folder.
+generate_documentation_diagrams.py - High-Resolution 4K/Retina Mermaid to PNG Renderer
+Features:
+- Headless Chrome with --force-device-scale-factor=2.5 (Retina HiDPI)
+- Scaled 24px/26px typography for effortless readability
+- Automatic bounding-box cropping with Pillow (zero wasted margin space)
 """
 
 import os
 import sys
 import subprocess
+import time
+from PIL import Image
 
 CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 if not os.path.exists(CHROME_PATH):
@@ -17,30 +22,61 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800&family=JetBrains+Mono:wght@600&display=swap" rel="stylesheet">
   <style>
     body {
       background-color: #0b0f19;
       color: #f0f4fc;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      font-family: 'Inter', -apple-system, sans-serif;
       margin: 0;
-      padding: 40px;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      box-sizing: border-box;
+      padding: 50px;
+      display: inline-block;
     }
     #wrapper {
       background: #111827;
-      border: 1px solid #374151;
-      border-radius: 16px;
-      padding: 36px 44px;
-      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+      border: 3px solid #374151;
+      border-radius: 20px;
+      padding: 44px 52px;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.9);
       display: inline-block;
     }
     .mermaid {
-      display: flex;
-      justify-content: center;
+      display: inline-block;
+    }
+    /* Enforce large, razor-sharp typography */
+    .node text, .node .label, .label text {
+      font-family: 'Inter', sans-serif !important;
+      font-size: 26px !important;
+      font-weight: 700 !important;
+      letter-spacing: -0.2px;
+    }
+    .edgeLabel text, .edgeLabel span {
+      font-family: 'JetBrains Mono', monospace !important;
+      font-size: 20px !important;
+      font-weight: 600 !important;
+      color: #93c5fd !important;
+    }
+    .cluster-label text, .cluster text {
+      font-family: 'Inter', sans-serif !important;
+      font-size: 28px !important;
+      font-weight: 800 !important;
+      fill: #38bdf8 !important;
+    }
+    .actor {
+      font-family: 'Inter', sans-serif !important;
+      font-size: 26px !important;
+      font-weight: 700 !important;
+    }
+    .messageText {
+      font-family: 'Inter', sans-serif !important;
+      font-size: 22px !important;
+      font-weight: 600 !important;
+      fill: #f1f5f9 !important;
+    }
+    .noteText {
+      font-family: 'JetBrains Mono', monospace !important;
+      font-size: 20px !important;
+      font-weight: 600 !important;
     }
   </style>
   <script src="__MERMAID_JS_PATH__"></script>
@@ -48,17 +84,33 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     mermaid.initialize({
       startOnLoad: true,
       theme: 'dark',
+      flowchart: {
+        useMaxWidth: false,
+        htmlLabels: true,
+        curve: 'basis'
+      },
+      sequence: {
+        useMaxWidth: false,
+        showSequenceNumbers: true,
+        actorFontSize: 26,
+        messageFontSize: 22,
+        noteFontSize: 20
+      },
       themeVariables: {
         darkMode: true,
+        fontSize: '26px',
+        fontFamily: 'Inter, sans-serif',
         background: '#111827',
-        primaryColor: '#1f2937',
-        primaryTextColor: '#f9fafb',
+        primaryColor: '#1e293b',
+        primaryTextColor: '#f8fafc',
         primaryBorderColor: '#00f2fe',
         lineColor: '#38bdf8',
         secondaryColor: '#0f172a',
-        tertiaryColor: '#1f2937',
+        tertiaryColor: '#1e293b',
         noteBkgColor: '#1e293b',
-        noteTextColor: '#93c5fd'
+        noteTextColor: '#93c5fd',
+        signalColor: '#38bdf8',
+        signalTextColor: '#f8fafc'
       }
     });
   </script>
@@ -73,9 +125,10 @@ __MERMAID_CODE__
 </html>
 """
 
-def render(mermaid_code, output_png, width=1800, height=1200):
+def render_high_res(mermaid_code, output_png, base_width=3200, base_height=2400):
     os.makedirs(os.path.dirname(os.path.abspath(output_png)), exist_ok=True)
-    temp_html = output_png.replace(".png", "_tmp.html")
+    temp_html = output_png.replace(".png", "_raw.html")
+    raw_screenshot = output_png.replace(".png", "_full.png")
     
     js_uri = "file:///" + MERMAID_JS.replace("\\", "/")
     html = HTML_TEMPLATE.replace("__MERMAID_JS_PATH__", js_uri).replace("__MERMAID_CODE__", mermaid_code.strip())
@@ -85,40 +138,85 @@ def render(mermaid_code, output_png, width=1800, height=1200):
         
     html_uri = "file:///" + os.path.abspath(temp_html).replace("\\", "/")
     
+    # 2.5x Device Scale Factor turns 3200x2400 viewport into true 8000x6000 ultra-crisp render
     cmd = [
         CHROME_PATH,
         "--headless",
         "--disable-gpu",
-        f"--screenshot={os.path.abspath(output_png)}",
-        f"--window-size={width},{height}",
-        "--virtual-time-budget=4000",
+        "--force-device-scale-factor=2.5",
+        f"--screenshot={os.path.abspath(raw_screenshot)}",
+        f"--window-size={base_width},{base_height}",
+        "--virtual-time-budget=5000",
         html_uri
     ]
     
-    print(f"Rendering {os.path.basename(output_png)}...")
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+    print(f"Rendering high-res {os.path.basename(output_png)}...")
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     
     if os.path.exists(temp_html):
         os.remove(temp_html)
         
-    if os.path.exists(output_png) and os.path.getsize(output_png) > 1000:
-        print(f"  [DONE] {os.path.basename(output_png)} ({os.path.getsize(output_png):,} bytes)")
-        return True
-    else:
-        print(f"  [FAIL] Failed: {res.stderr}")
+    if not os.path.exists(raw_screenshot):
+        print(f"  [ERROR] Chrome failed to generate screenshot: {res.stderr}")
         return False
+        
+    # Crop tightly to the bounding box of the diagram
+    try:
+        img = Image.open(raw_screenshot)
+        rgb_img = img.convert("RGB")
+        
+        # Bounding box of content distinct from outer background (#0b0f19 -> 11, 15, 25)
+        # Scan for pixels with brightness above background
+        width, height = img.size
+        pixels = rgb_img.load()
+        bg_r, bg_g, bg_b = 11, 15, 25
+        
+        left, top, right, bottom = width, height, 0, 0
+        step = 4 # Fast scan step
+        for y in range(0, height, step):
+            for x in range(0, width, step):
+                r, g, b = pixels[x, y]
+                # If pixel differs meaningfully from background
+                if abs(r - bg_r) > 10 or abs(g - bg_g) > 10 or abs(b - bg_b) > 10:
+                    if x < left: left = x
+                    if x > right: right = x
+                    if y < top: top = y
+                    if y > bottom: bottom = y
+                    
+        padding = 40
+        left = max(0, left - padding)
+        top = max(0, top - padding)
+        right = min(width, right + padding)
+        bottom = min(height, bottom + padding)
+        
+        if right > left and bottom > top:
+            cropped = img.crop((left, top, right, bottom))
+            cropped.save(output_png, "PNG", optimize=True)
+            print(f"  [SUCCESS] {os.path.basename(output_png)} -> {cropped.size[0]}x{cropped.size[1]} px ({os.path.getsize(output_png):,} bytes)")
+        else:
+            img.save(output_png, "PNG", optimize=True)
+            print(f"  [SUCCESS] {os.path.basename(output_png)} -> {img.size[0]}x{img.size[1]} px")
+            
+        if os.path.exists(raw_screenshot):
+            os.remove(raw_screenshot)
+        return True
+    except Exception as e:
+        print(f"  [ERROR] Cropping failed: {e}")
+        if os.path.exists(raw_screenshot):
+            os.rename(raw_screenshot, output_png)
+        return True
 
 # Diagram 1: System End-to-End Architecture
 D1 = """
 graph TD
     subgraph SENSORS ["1. Physical Signals & Sensor Front-Ends"]
-        A1["10 cm Wire Antenna<br/>(Microvolt Ambient EMI / 50 Hz Hum)"]
-        A2["HackRF One SDR<br/>(1 MHz - 6 GHz, 20 MSps Complex I/Q)"]
-        A3["Hantek DSO5102P<br/>(1 GSa/s Triggered Burst Capture)"]
+        A1["10 cm Wire Antenna<br/>Microvolt Ambient EMI / 50 Hz Hum"]
+        A2["HackRF One SDR<br/>1 MHz - 6 GHz, 20 MSps Complex I/Q"]
+        A3["Hantek DSO5102P<br/>1 GSa/s Triggered Burst Capture"]
     end
 
     subgraph FPGA ["2. FPGA Hardware Layer (Xilinx Zynq-7020)"]
-        B1["ADS1115 16-bit Delta-Sigma ADC<br/>(I2C Address: 0x48 @ Pin A0)"]
+        B1["ADS1115 16-bit Delta-Sigma ADC<br/>I2C Address: 0x48 @ Pin A0"]
         B2["Programmable Logic (PL Fabric)<br/>220 DSP48E1 Slices | MicroBlaze IOP Subsystem"]
         B3["AXI IIC Hardware Core<br/>Base Address: 0x40800000"]
         B4["ARM Cortex-A9 Processing System (PS)<br/>Direct Register Control via Arduino DevMode"]
@@ -167,7 +265,7 @@ graph TD
 D2 = """
 graph LR
     subgraph INPUT ["Raw Ingestion"]
-        X0["Raw ADC Samples x[n]<br/>(256 samples @ 116.4 Hz)"]
+        X0["Raw ADC Samples x[n]<br/>256 samples @ 116.4 Hz"]
     end
 
     subgraph TIME_DSP ["1. Time-Domain Processing"]
@@ -239,7 +337,7 @@ sequenceDiagram
 
 if __name__ == "__main__":
     out_dir = r"h:\07-projects\03-inhouse-projects\fpgaadc\documentation"
-    render(D1, os.path.join(out_dir, "system_architecture.png"), width=1800, height=1350)
-    render(D2, os.path.join(out_dir, "dsp_pipeline.png"), width=1800, height=1100)
-    render(D3, os.path.join(out_dir, "decoupled_threading.png"), width=1600, height=1200)
-    print("\nAll diagrams successfully generated in:", out_dir)
+    render_high_res(D1, os.path.join(out_dir, "system_architecture.png"), base_width=3200, base_height=2600)
+    render_high_res(D2, os.path.join(out_dir, "dsp_pipeline.png"), base_width=3400, base_height=1800)
+    render_high_res(D3, os.path.join(out_dir, "decoupled_threading.png"), base_width=2800, base_height=2000)
+    print("\nAll Ultra-High-Resolution PNGs rendered successfully!")
