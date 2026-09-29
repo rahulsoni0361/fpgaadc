@@ -1,3 +1,4 @@
+# Environment & cache
 __pycache__/
 *.py[cod]
 *$py.class
@@ -7,3 +8,9 @@ env/
 venv/
 .DS_Store
 *.tmp
+
+# Documentation, marketing & notes
+docs/
+*.json
+update_linkedin_skill.py
+start_pynq_streamer.py
